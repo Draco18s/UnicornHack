@@ -9,9 +9,8 @@ namespace UnicornHack.Services
 {
     public class LanguageService
     {
-        // TODO: Use SharpSimpleNLG
-
         protected virtual CultureInfo Culture { get; } = new CultureInfo(name: "en-US");
+        private EnglishPluralizationService EnglishPluralizationService { get; } = new EnglishPluralizationService();
 
         public virtual string Format(string format, params object[] arguments)
         {
@@ -27,12 +26,6 @@ namespace UnicornHack.Services
                 return string.Empty;
             }
             return char.ToUpper(s[index: 0]) + s.Substring(startIndex: 1);
-        }
-
-        private enum Tense
-        {
-            Infinitive,
-            Present
         }
 
         private string ToReflexivePronoun(Sex sex, bool thirdPerson)
@@ -53,46 +46,29 @@ namespace UnicornHack.Services
             }
         }
 
-        private bool IsVowel(char character)
-        {
-            switch (character)
-            {
-                case 'a':
-                case 'e':
-                case 'i':
-                case 'o':
-                case 'u':
-                case 'A':
-                case 'E':
-                case 'I':
-                case 'O':
-                case 'U':
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        private bool IsConsonant(char character)
-        {
-            return !IsVowel(character);
-        }
-
-        private string ToSForm(string word, bool verb)
-        {
-            var lastCharacter = word[word.Length - 1];
-            var beforeLastCharacter = word[word.Length - 2];
-
-            return word + "s";
-        }
-
         #endregion
 
         #region Game concepts
 
-        private string ToString(Actor actor)
+        private string ToString(Actor actor, bool? definiteDeterminer = null)
         {
-            return actor.Variant.Name + (actor.GivenName == null ? "" : " named \"" + actor.GivenName + "\"");
+            var monster = actor as Monster;
+            if (monster != null)
+            {
+                var name = monster.Variant.Name +
+                           (monster.GivenName == null ? "" : " named \"" + monster.GivenName + "\"");
+
+                var proper = char.IsUpper(name[0]);
+                return (definiteDeterminer == null || proper
+                    ? ""
+                    : definiteDeterminer.Value
+                        ? "the "
+                        : "a ")
+                       + name;
+            }
+
+            var character = actor as PlayerCharacter;
+            return character.GivenName;
         }
 
         private string ToString(Item item)
@@ -103,14 +79,14 @@ namespace UnicornHack.Services
             {
                 dropedItemString = stackableItem.Quantity + " " +
                                    (stackableItem.Quantity > 1
-                                       ? ToSForm(dropedItemString, verb: false)
+                                       ? EnglishPluralizationService.Pluralize(dropedItemString)
                                        : dropedItemString);
             }
 
             return dropedItemString;
         }
 
-        private string ToVerb(AttackType attackType, Tense tense, bool singularThirdPerson)
+        private string ToVerb(AttackType attackType, EnglishVerbForm form, bool singularThirdPerson)
         {
             string verb;
             switch (attackType)
@@ -144,28 +120,28 @@ namespace UnicornHack.Services
                     verb = "sting";
                     break;
                 case AttackType.Hug:
-                    verb = "hug";
+                    verb = "squeeze";
                     break;
                 case AttackType.Trample:
                     verb = "trample";
                     break;
                 case AttackType.Spit:
-                    verb = "spit";
+                    verb = "spit at";
                     break;
                 case AttackType.Digestion:
                     verb = "digest";
                     break;
                 case AttackType.Spell:
-                    verb = "cast";
+                    verb = "cast at";
                     break;
                 case AttackType.Breath:
-                    verb = "breath";
+                    verb = "breath at";
                     break;
                 case AttackType.Gaze:
-                    verb = "gaze";
+                    verb = "gaze at";
                     break;
                 case AttackType.Scream:
-                    verb = "scream";
+                    verb = "scream at";
                     break;
                 case AttackType.Explosion:
                     verb = "explode";
@@ -178,14 +154,14 @@ namespace UnicornHack.Services
                     throw new ArgumentOutOfRangeException(nameof(attackType), attackType, message: null);
             }
 
-            switch (tense)
+            switch (form)
             {
-                case Tense.Infinitive:
+                case EnglishVerbForm.Infinitive:
                     return "to " + verb;
-                case Tense.Present:
-                    return singularThirdPerson ? ToSForm(verb, verb: true) : verb;
+                case EnglishVerbForm.BareInfinitive:
+                    return singularThirdPerson ? EnglishPluralizationService.GetSForm(verb) : verb;
                 default:
-                    throw new ArgumentOutOfRangeException(nameof(tense), tense, message: null);
+                    throw new ArgumentOutOfRangeException(nameof(form), form, message: null);
             }
         }
 
@@ -226,23 +202,84 @@ namespace UnicornHack.Services
 
         public virtual string ToString(AttackEvent @event)
         {
+            if (@event.Sensor != @event.Victim
+                && @event.Attacker != @event.Victim
+                && !@event.AttackerSensed.HasFlag(SenseType.Sight))
+            {
+                var noisesFormat = "You hear some {0}noises.";
+                if (@event.AttackerSensed.HasFlag(SenseType.Sound))
+                {
+                    return Format(noisesFormat, "");
+                }
+                else if (@event.AttackerSensed.HasFlag(SenseType.SoundDistant))
+                {
+                    return Format(noisesFormat, "distant ");
+                }
+
+                return null;
+            }
+
             var attacker = @event.Sensor == @event.Attacker
                 ? "you"
-                : @event.AttackerSensed.HasFlag(SenseType.Sight) ? ToString(@event.Attacker) : "something";
+                : @event.AttackerSensed.HasFlag(SenseType.Sight)
+                    ? ToString(@event.Attacker, definiteDeterminer: true)
+                    : "something";
 
             var victim = @event.Attacker == @event.Victim
-                ? ToReflexivePronoun(@event.Victim.Sex, @event.Sensor != @event.Victim)
-                : @event.Sensor == @event.Victim
-                    ? "you"
-                    : @event.VictimSensed.HasFlag(SenseType.Sight) ? ToString(@event.Victim) : "something";
+                    ? ToReflexivePronoun(@event.Victim.Sex, @event.Sensor != @event.Victim)
+                    : @event.Sensor == @event.Victim
+                        ? "you"
+                        : @event.VictimSensed.HasFlag(SenseType.Sight)
+                            ? ToString(@event.Victim, definiteDeterminer: true)
+                            : "something";
 
             if (@event.Hit)
             {
-                return Format("{0} {1} {2} for {3} damage.", ToUppercaseFirst(attacker),
-                    ToVerb(@event.AttackType, Tense.Present, @event.Sensor != @event.Attacker), victim, @event.Damage);
+                var attackSentence = ToUppercaseFirst(attacker) + " " +
+                                     ToVerb(@event.AttackType, EnglishVerbForm.ThirdPersonSingularPresent, @event.Sensor != @event.Attacker);
+
+                if (@event.Sensor != @event.Victim)
+                {
+                    attackSentence += " " + victim;
+                }
+
+                attackSentence += @event.Sensor == @event.Victim ? "!" : ".";
+
+                var damageSentence = "";
+                if (!@event.VictimSensed.HasFlag(SenseType.Sight))
+                {
+                    return attackSentence;
+                }
+                if (@event.Sensor == @event.Victim)
+                {
+                    if (@event.Damage == 0)
+                    {
+                        damageSentence = "You are unaffected.";
+                    }
+                    else
+                    {
+                        damageSentence = Format(" [{0} pts.]", @event.Damage);
+                    }
+                }
+                else
+                {
+                    if (@event.Damage == 0)
+                    {
+                        damageSentence = ToUppercaseFirst(victim) + " seems unaffected.";
+                    }
+                    else
+                    {
+                        damageSentence = Format(" ({0} pts.)", @event.Damage);
+                    }
+                }
+
+                return attackSentence + damageSentence;
             }
-            return Format("{0} tries {1} {2}, but misses.", ToUppercaseFirst(attacker),
-                ToVerb(@event.AttackType, Tense.Infinitive, @event.Sensor != @event.Attacker), victim);
+            else
+            {
+                return Format("{0} tries {1} {2}, but misses.", ToUppercaseFirst(attacker),
+                    ToVerb(@event.AttackType, EnglishVerbForm.Infinitive, @event.Sensor != @event.Attacker), victim);
+            }
         }
 
         public virtual string ToString(ItemDropEvent @event)
@@ -306,7 +343,7 @@ namespace UnicornHack.Services
 
         public virtual string Welcome(PlayerCharacter character)
         {
-            return Format("Welcome to {0}, {1}!", character.Level.Name, ToString(character));
+            return Format("Welcome to the {0}, {1}!", character.Level.Name, ToString(character));
         }
 
         public virtual string UnableToMove(Direction direction)

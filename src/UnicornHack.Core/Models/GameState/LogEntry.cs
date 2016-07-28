@@ -23,5 +23,7 @@ namespace UnicornHack.Models.GameState
         // ReSharper disable once UnusedAutoPropertyAccessor.Local
         public int GameId { get; private set; }
         public Game Game => Player.Game;
+        public int Turn { get; set; }
+        public LogEntryImportance Importance { get; set; }
     }
 }

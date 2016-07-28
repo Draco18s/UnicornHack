@@ -8,11 +8,12 @@ namespace UnicornHack.Models.GameState
 {
     public class Monster : Actor
     {
-        protected Monster()
+        public Monster(ActorVariant variant)
+            : base(variant)
         {
         }
 
-        protected Monster(ActorVariant variant, byte x, byte y, Level level)
+        public Monster(ActorVariant variant, byte x, byte y, Level level)
             : base(variant, x, y, level)
         {
         }
