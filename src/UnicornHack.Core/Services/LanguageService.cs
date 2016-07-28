@@ -1,16 +1,21 @@
 using System;
 using System.ComponentModel;
 using System.Globalization;
+using SimpleNLG;
 using UnicornHack.Models.GameDefinitions;
 using UnicornHack.Models.GameState;
 using UnicornHack.Models.GameState.Events;
+using UnicornHack.Utils;
 
 namespace UnicornHack.Services
 {
     public class LanguageService
     {
+        private static readonly Lexicon Lexicon = Lexicon.getDefaultLexicon();
+        private static readonly NLGFactory NlgFactory = new NLGFactory(Lexicon);
+        private static readonly Realiser Realiser = new Realiser(Lexicon);
+
         protected virtual CultureInfo Culture { get; } = new CultureInfo(name: "en-US");
-        private EnglishPluralizationService EnglishPluralizationService { get; } = new EnglishPluralizationService();
 
         public virtual string Format(string format, params object[] arguments)
         {
@@ -18,6 +23,8 @@ namespace UnicornHack.Services
         }
 
         #region Natural language helpers
+        
+        private string Exclame(string sentence) => sentence.TrimEnd('.') + "!";
 
         static string ToUppercaseFirst(string s)
         {
@@ -79,14 +86,14 @@ namespace UnicornHack.Services
             {
                 dropedItemString = stackableItem.Quantity + " " +
                                    (stackableItem.Quantity > 1
-                                       ? EnglishPluralizationService.Pluralize(dropedItemString)
+                                       ? dropedItemString
                                        : dropedItemString);
             }
 
             return dropedItemString;
         }
 
-        private string ToVerb(AttackType attackType, EnglishVerbForm form, bool singularThirdPerson)
+        private string ToVerb(AttackType attackType, Form form, bool singularThirdPerson)
         {
             string verb;
             switch (attackType)
@@ -154,15 +161,7 @@ namespace UnicornHack.Services
                     throw new ArgumentOutOfRangeException(nameof(attackType), attackType, message: null);
             }
 
-            switch (form)
-            {
-                case EnglishVerbForm.Infinitive:
-                    return "to " + verb;
-                case EnglishVerbForm.BareInfinitive:
-                    return singularThirdPerson ? EnglishPluralizationService.GetSForm(verb) : verb;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(form), form, message: null);
-            }
+            return verb;
         }
 
         private static string ToString(Direction direction)
@@ -219,31 +218,34 @@ namespace UnicornHack.Services
                 return null;
             }
 
-            var attacker = @event.Sensor == @event.Attacker
-                ? "you"
-                : @event.AttackerSensed.HasFlag(SenseType.Sight)
-                    ? ToString(@event.Attacker, definiteDeterminer: true)
-                    : "something";
 
-            var victim = @event.Attacker == @event.Victim
-                    ? ToReflexivePronoun(@event.Victim.Sex, @event.Sensor != @event.Victim)
-                    : @event.Sensor == @event.Victim
-                        ? "you"
+            var attacker = NlgFactory.createNounPhrase(
+                @event.Sensor == @event.Attacker
+                    ? "you"
+                    : @event.AttackerSensed.HasFlag(SenseType.Sight)
+                        ? ToString(@event.Attacker, definiteDeterminer: true)
+                        : "something");
+
+            var victim = NlgFactory.createNounPhrase(
+                @event.Attacker == @event.Victim
+                        ? null
                         : @event.VictimSensed.HasFlag(SenseType.Sight)
                             ? ToString(@event.Victim, definiteDeterminer: true)
-                            : "something";
+                            : "something");
+
+            var attack = ToVerb(@event.AttackType, Form.NORMAL, false);
 
             if (@event.Hit)
             {
-                var attackSentence = ToUppercaseFirst(attacker) + " " +
-                                     ToVerb(@event.AttackType, EnglishVerbForm.ThirdPersonSingularPresent, @event.Sensor != @event.Attacker);
+                var attackClause = NlgFactory.createClause(attacker, attack, victim);
+                //var verbPhrase = NlgFactory.createVerbPhrase(attack);
+                //verbPhrase.setFeature(Feature.FORM.ToString(), Form.BARE_INFINITIVE);
 
-                if (@event.Sensor != @event.Victim)
+                var attackSentence = Realiser.realiseSentence(attackClause);
+                if (@event.Sensor == @event.Victim)
                 {
-                    attackSentence += " " + victim;
+                    attackSentence = Exclame(attackSentence);
                 }
-
-                attackSentence += @event.Sensor == @event.Victim ? "!" : ".";
 
                 var damageSentence = "";
                 if (!@event.VictimSensed.HasFlag(SenseType.Sight))
@@ -254,7 +256,8 @@ namespace UnicornHack.Services
                 {
                     if (@event.Damage == 0)
                     {
-                        damageSentence = "You are unaffected.";
+                        var damageClause = NlgFactory.createClause("you", "is", "unaffected");
+                        damageSentence = Realiser.realiseSentence(damageClause);
                     }
                     else
                     {
@@ -265,7 +268,8 @@ namespace UnicornHack.Services
                 {
                     if (@event.Damage == 0)
                     {
-                        damageSentence = ToUppercaseFirst(victim) + " seems unaffected.";
+                        var damageClause = NlgFactory.createClause(victim, "seem", "unaffected");
+                        damageSentence = Realiser.realiseSentence(damageClause);
                     }
                     else
                     {
@@ -277,8 +281,18 @@ namespace UnicornHack.Services
             }
             else
             {
-                return Format("{0} tries {1} {2}, but misses.", ToUppercaseFirst(attacker),
-                    ToVerb(@event.AttackType, EnglishVerbForm.Infinitive, @event.Sensor != @event.Attacker), victim);
+                var attackVerb = NlgFactory.createVerbPhrase(attack);
+
+                var attackClause = NlgFactory.createClause();
+                attackClause.setVerbPhrase(attackVerb);
+                attackClause.setObject(victim);
+
+                attackClause.setFeature(Feature.FORM.ToString(), Form.INFINITIVE);
+
+                var missClause = NlgFactory.createClause(attacker, "try", attackClause);
+                //, but misses.
+
+                return Realiser.realiseSentence(missClause);
             }
         }
 
@@ -287,7 +301,7 @@ namespace UnicornHack.Services
             var dropper = @event.Sensor == @event.Dropper
                 ? "you"
                 : @event.DropperSensed.HasFlag(SenseType.Sight)
-                    ? ToString(@event.Dropper)
+                    ? ToString((dynamic)@event.Dropper)
                     : "something";
 
             return Format("{0} drops {1}.", ToUppercaseFirst(dropper), ToString(@event.Item));
@@ -298,7 +312,7 @@ namespace UnicornHack.Services
             var dropper = @event.Sensor == @event.Picker
                 ? "you"
                 : @event.PickerSensed.HasFlag(SenseType.Sight)
-                    ? ToString(@event.Picker)
+                    ? ToString((dynamic)@event.Picker)
                     : "something";
 
             return Format("{0} picks up {1}.", ToUppercaseFirst(dropper), ToString(@event.Item));
@@ -314,7 +328,7 @@ namespace UnicornHack.Services
             }
             else
             {
-                var deceased = @event.DeceasedSensed.HasFlag(SenseType.Sight) ? ToString(@event.Deceased) : "something";
+                var deceased = @event.DeceasedSensed.HasFlag(SenseType.Sight) ? ToString((dynamic)@event.Deceased) : "something";
                 message = Format("{0} dies", ToUppercaseFirst(deceased));
             }
 
@@ -333,7 +347,7 @@ namespace UnicornHack.Services
             {
                 return Format("You eat a {0}.", @object);
             }
-            var consumer = @event.ConsumerSensed.HasFlag(SenseType.Sight) ? ToString(@event.Consumer) : "something";
+            var consumer = @event.ConsumerSensed.HasFlag(SenseType.Sight) ? ToString((dynamic)@event.Consumer) : "something";
             return Format("{0} eats a {1}.", consumer, @object);
         }
 
@@ -343,7 +357,17 @@ namespace UnicornHack.Services
 
         public virtual string Welcome(PlayerCharacter character)
         {
-            return Format("Welcome to the {0}, {1}!", character.Level.Name, ToString(character));
+            var verbPhrase = NlgFactory.createVerbPhrase("welcome to");
+            verbPhrase.setFeature(Feature.FORM.ToString(), Form.BARE_INFINITIVE);
+
+            var place = NlgFactory.createNounPhrase("the", character.Level.Name);
+            verbPhrase.setIndirectObject(place);
+
+            var vocative = NlgFactory.createNounPhrase(character.GivenName);
+            vocative.setFeature(Feature.APPOSITIVE.ToString(), true);
+            verbPhrase.addPostModifier(vocative);
+
+            return Exclame(Realiser.realiseSentence(verbPhrase));
         }
 
         public virtual string UnableToMove(Direction direction)

@@ -7,7 +7,8 @@
     "Microsoft.Extensions.Logging": "1.1.0-alpha1-21649",
     "Microsoft.Extensions.Logging.Console": "1.1.0-alpha1-21649",
     "Microsoft.Extensions.Logging.Debug": "1.1.0-alpha1-21649",
-    "Microsoft.Extensions.Options.ConfigurationExtensions": "1.1.0-alpha1-21649"
+    "Microsoft.Extensions.Options.ConfigurationExtensions": "1.1.0-alpha1-21649",
+    "SharpSimpleNLG": "1.1.0"
   },
 
   "frameworks": {

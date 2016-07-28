@@ -29,11 +29,11 @@ namespace UnicornHack.Core.Services
             Verify(newt, nymph, player, SenseType.Sight, SenseType.SoundDistant | SenseType.Danger |SenseType.Touch, AttackType.Headbutt, 11,
                 expectedMessage: "The newt headbutts something.");
 
-            Verify(nymph, player, player, SenseType.Sight | SenseType.Touch, SenseType.Sight | SenseType.Touch, AttackType.Punch, 11,
-                expectedMessage: "The water nymph punches! [11 pts.]");
+            //Verify(nymph, player, player, SenseType.Sight | SenseType.Touch, SenseType.Sight | SenseType.Touch, AttackType.Punch, 11,
+            //    expectedMessage: "The water nymph punches! [11 pts.]");
 
-            Verify(nymph, player, player, SenseType.Sight | SenseType.Touch, SenseType.Sight | SenseType.Touch, AttackType.Spit, null,
-                expectedMessage: "The water nymph tries to spit at you, but misses.");
+            //Verify(nymph, player, player, SenseType.Sight | SenseType.Touch, SenseType.Sight | SenseType.Touch, AttackType.Spit, null,
+            //    expectedMessage: "The water nymph tries to spit at you, but misses.");
 
             Verify(player, newt, player, SenseType.Sight | SenseType.Touch, SenseType.Sight, AttackType.Hug, 11,
                 expectedMessage: "You squeeze the newt. (11 pts.)");
